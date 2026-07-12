@@ -223,9 +223,8 @@ def render_stock_card(r, allocation_eur=None, capital=None, extra_note=None) -> 
                     <div class="eng-dial-track"></div>
                     <div class="eng-dial-needle {dial_class}"></div>
                 </div>
-                <div class="eng-bias-text"><b>{bias_label}</b> · {r.bias.bullish_count} senyals a favor</div>
-            </div>
-            {note_html}
+              <div class="eng-bias-text"><b>{bias_label}</b> · {r.bias.bullish_count} senyals a favor</div>
+            </div>{note_html}
         </div>
     </div>
     """
