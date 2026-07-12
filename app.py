@@ -203,8 +203,7 @@ def render_stock_card(r, allocation_eur=None, capital=None, extra_note=None) -> 
                     <div class="eng-stock-ticker">{r.ticker}</div>
                 </div>
                 <div>{pct_html}</div>
-            </div>
-            {bar_html}
+            </div>{bar_html}
             <div class="eng-metrics-row">
                 <div class="eng-metric">
                     <div class="eng-metric-label">Score</div>
