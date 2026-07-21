@@ -115,6 +115,23 @@ def analyze_stock(display_name: str, ticker: str, index_snapshot: IndexSnapshot)
     )
 
 
+def analyze_focused() -> List[StockReport]:
+    """Analitza NOMES els valors en els que l'usuari s'ha centrat: GRIFOLS
+    (dins l'IBEX35) i SPCX (SpaceX, Nasdaq). Combina els dos mercats en una
+    sola llista, perque l'app els mostri sempre junts.
+
+    Returns:
+        Llista de StockReport amb Grifols i SpaceX (en aquest ordre).
+    """
+    reports: List[StockReport] = []
+    for market in ("IBEX35", "SPCX"):
+        try:
+            reports.extend(analyze_market(market=market))
+        except Exception as exc:
+            print(f"[main] Avis: error analitzant el mercat {market}: {exc}")
+    return reports
+
+
 def analyze_market(market: str = ACTIVE_MARKET, universe: Optional[Dict[str, str]] = None) -> List[StockReport]:
     """Executa el pipeline complet per UN mercat i retorna els StockReport crus
     (sense renderitzar), perque altres moduls (com compare.py) els puguin

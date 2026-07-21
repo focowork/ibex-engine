@@ -223,7 +223,7 @@ def render_stock_card(r, allocation_eur=None, capital=None, extra_note=None) -> 
                     <div class="eng-dial-track"></div>
                     <div class="eng-dial-needle {dial_class}"></div>
                 </div>
-              <div class="eng-bias-text"><b>{bias_label}</b> · {r.bias.bullish_count} senyals a favor</div>
+                <div class="eng-bias-text"><b>{bias_label}</b> · {r.bias.bullish_count} senyals a favor</div>
             </div>{note_html}
         </div>
     </div>
@@ -250,11 +250,18 @@ def _cached_analyze_market(market: str):
     return main.analyze_market(market=market)
 
 
-def screen_quick_view():
-    render_header("VISTA RÀPIDA", "Què val la pena mirar ara", "Descarta automàticament EVITAR i biaix mixt/baixista")
+@st.cache_data(ttl=120, show_spinner=False)
+def _cached_analyze_focused():
+    """Cacheja l'analisi combinada de GRIFOLS + SPCX (els unics valors
+    que l'usuari vol seguir)."""
+    return main.analyze_focused()
 
-    with st.spinner("Analitzant IBEX35..."):
-        reports = _cached_analyze_market(ACTIVE_MARKET)
+
+def screen_quick_view():
+    render_header("VISTA RÀPIDA", "Què val la pena mirar ara", "Grifols (IBEX35) i SpaceX (Nasdaq) — descarta EVITAR i biaix baixista")
+
+    with st.spinner("Analitzant Grifols i SpaceX..."):
+        reports = _cached_analyze_focused()
 
     candidates = [
         r for r in reports
@@ -273,17 +280,17 @@ def screen_quick_view():
 
 
 def screen_closing():
-    render_header("TANCAMENT DE SESSIÓ", "On invertir demà", "Candidats seleccionats de les 35 empreses de l'IBEX35")
+    render_header("TANCAMENT DE SESSIÓ", "On invertir demà", "Candidats seleccionats entre Grifols i SpaceX")
 
     col1, col2 = st.columns(2)
     with col1:
         capital = st.number_input("Capital a repartir (€)", min_value=0.0, value=float(EOD_DEFAULT_CAPITAL), step=500.0)
     with col2:
-        n = st.number_input("Nombre de candidats", min_value=1, max_value=10, value=EOD_NUM_PICKS)
+        n = st.number_input("Nombre de candidats", min_value=1, max_value=2, value=min(EOD_NUM_PICKS, 2))
 
     if st.button("🔍 Analitzar tancament", use_container_width=True):
-        with st.spinner("Analitzant les 35 empreses..."):
-            reports = main.analyze_market(market=ACTIVE_MARKET)
+        with st.spinner("Analitzant Grifols i SpaceX..."):
+            reports = main.analyze_focused()
             picks, allocations = closing_report_module.select_and_allocate(reports, n=int(n), capital=capital)
 
         if not picks:
@@ -337,11 +344,19 @@ def screen_morning():
 
     if st.button("🔄 Confirmar amb dades d'ara", use_container_width=True):
         with st.spinner("Revalidant amb dades fresques..."):
-            index_snapshot = main.data_loader.get_index_snapshot(ACTIVE_MARKET)
+            # Cada ticker pertany a un mercat diferent (Grifols=IBEX35, SPCX=Nasdaq),
+            # aixi que cal l'index de referencia correcte per cadascun.
+            index_snapshots = {
+                "IBEX35": main.data_loader.get_index_snapshot("IBEX35"),
+                "SPCX": main.data_loader.get_index_snapshot("SPCX"),
+            }
             fresh_reports = []
             for row in latest:
+                market = "SPCX" if row["ticker"].upper() == "SPCX" else "IBEX35"
                 try:
-                    fresh_reports.append(main.analyze_stock(row["nom"], row["ticker"], index_snapshot))
+                    fresh_reports.append(
+                        main.analyze_stock(row["nom"], row["ticker"], index_snapshots[market])
+                    )
                 except Exception as exc:
                     st.warning(f"No s'ha pogut analitzar {row['nom']}: {exc}")
 
@@ -460,10 +475,10 @@ def screen_history():
 
 
 def screen_full():
-    render_header("ANÀLISI COMPLETA", "Les 35 empreses de l'IBEX35", "Ordenades per potencial (Final Score)")
+    render_header("ANÀLISI COMPLETA", "Grifols i SpaceX", "Comparativa completa dels dos valors")
 
-    with st.spinner("Analitzant IBEX35..."):
-        reports = _cached_analyze_market(ACTIVE_MARKET)
+    with st.spinner("Analitzant Grifols i SpaceX..."):
+        reports = _cached_analyze_focused()
 
     long_only = [r for r in reports if r.bias.bias not in ("BAIXISTA_CLAR", "BAIXISTA_LLEU")]
     long_only.sort(key=lambda r: r.scores.final_score, reverse=True)

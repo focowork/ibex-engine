@@ -16,8 +16,8 @@ from typing import Dict, List
 # Ticker de yfinance que representa l'index de referencia de cada mercat.
 MARKET_INDEX_TICKERS: Dict[str, str] = {
     "IBEX35": "^IBEX",
-    # NASDAQ desactivat a peticio de l'usuari (nomes es fa servir IBEX35).
-    # Es deixa aqui comentat per si es vol reactivar en el futur:
+    "SPCX": "^IXIC",  # SpaceX cotitza al Nasdaq; fem servir el Nasdaq Composite com a referencia
+    # NASDAQ (mercat sencer) desactivat a peticio de l'usuari:
     # "NASDAQ": "^IXIC",
 }
 
@@ -70,23 +70,36 @@ IBEX_STOCK_UNIVERSE: Dict[str, str] = {
     "UNICAJA": "UNI.MC",
 }
 
+# Univers d'una sola accio dins l'IBEX35: nomes GRIFOLS (a peticio de l'usuari,
+# que vol l'app centrada nomes en Grifols + SpaceX, ignorant la resta de l'IBEX).
+IBEX_FOCUSED_UNIVERSE: Dict[str, str] = {
+    "GRIFOLS": "GRF.MC",
+}
+
+# Univers d'una sola accio per SpaceX (Nasdaq: SPCX), IPO del 12 de juny de 2026.
+SPCX_STOCK_UNIVERSE: Dict[str, str] = {
+    "SPACEX": "SPCX",
+}
+
 # Univers actiu que fara servir main.py quan nomes s'analitza UN mercat.
-STOCK_UNIVERSE: Dict[str, str] = IBEX_STOCK_UNIVERSE
+STOCK_UNIVERSE: Dict[str, str] = IBEX_FOCUSED_UNIVERSE
 
 # Mapeig mercat -> univers d'accions.
 MARKET_STOCK_UNIVERSES: Dict[str, Dict[str, str]] = {
-    "IBEX35": IBEX_STOCK_UNIVERSE,
+    "IBEX35": IBEX_FOCUSED_UNIVERSE,
+    "SPCX": SPCX_STOCK_UNIVERSE,
 }
 
 # Moneda de cotitzacio de cada mercat, nomes per mostrar-la correctament
 # a l'informe.
 MARKET_CURRENCY: Dict[str, str] = {
     "IBEX35": "EUR",
+    "SPCX": "USD",
 }
 
 # Mercats que s'analitzaran quan es fa servir run_multi_market() sense
-# arguments. Nomes IBEX35.
-MARKETS_TO_RUN: List[str] = ["IBEX35"]
+# arguments.
+MARKETS_TO_RUN: List[str] = ["IBEX35", "SPCX"]
 
 # ---------------------------------------------------------------------------
 # DADES / TEMPS
