@@ -219,6 +219,125 @@ def read_all_history() -> List[dict]:
         return list(csv.DictReader(f))
 
 
+# ---------------------------------------------------------------------------
+# POSICIONS OBERTES (position_manager.py)
+# ---------------------------------------------------------------------------
+POSITIONS_CSV_FILENAME = "positions.csv"
+
+POSITIONS_CSV_FIELDS = [
+    "ticker", "nom", "preu_entrada", "accions_inicials", "capital_invertit_eur",
+    "stop", "objectiu", "accions_reduides", "oberta_el", "tancada", "tancada_el",
+]
+
+
+def _positions_csv_path() -> str:
+    return os.path.join(_repo_root(), POSITIONS_CSV_FILENAME)
+
+
+def _read_positions_rows() -> List[dict]:
+    path = _positions_csv_path()
+    if not os.path.isfile(path):
+        return []
+    with open(path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def _write_positions_rows(rows: List[dict]) -> None:
+    path = _positions_csv_path()
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=POSITIONS_CSV_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def open_position(position) -> str:
+    """Guarda una posicio nova al CSV i la puja a GitHub.
+
+    Args:
+        position: models.Position ja creada (encara sense reduccions).
+
+    Returns:
+        Text de confirmacio.
+    """
+    rows = _read_positions_rows()
+    rows = [r for r in rows if not (r["ticker"] == position.ticker and r["tancada"] != "True")]
+    rows.append({
+        "ticker": position.ticker,
+        "nom": position.display_name,
+        "preu_entrada": f"{position.entry_price:.4f}",
+        "accions_inicials": str(position.initial_shares),
+        "capital_invertit_eur": f"{position.capital_invested:.2f}",
+        "stop": f"{position.stop_price:.4f}",
+        "objectiu": f"{position.target_price:.4f}",
+        "accions_reduides": "0",
+        "oberta_el": position.opened_at,
+        "tancada": "False",
+        "tancada_el": "",
+    })
+    _write_positions_rows(rows)
+
+    if _git_configured():
+        pushed = _commit_and_push(f"Posicio oberta: {position.display_name} el {position.opened_at}")
+        if pushed:
+            return f"✅ Posicio de {position.display_name} guardada i pujada a GitHub."
+        return f"⚠️ Posicio guardada localment, pero no s'ha pogut pujar a GitHub (revisa els Secrets)."
+    return f"Posicio de {position.display_name} guardada nomes per aquesta sessio (GitHub no configurat)."
+
+
+def read_open_positions() -> List[dict]:
+    """Retorna nomes les files de posicions encara obertes (no tancades)."""
+    return [r for r in _read_positions_rows() if r.get("tancada") != "True"]
+
+
+def update_position_reduction(ticker: str, new_shares_reduced: int) -> str:
+    """Actualitza el nombre d'accions ja reduides d'una posicio oberta.
+
+    Args:
+        ticker: identifica la posicio.
+        new_shares_reduced: nou total ACUMULAT d'accions reduides.
+
+    Returns:
+        Text de confirmacio.
+    """
+    rows = _read_positions_rows()
+    found = False
+    for r in rows:
+        if r["ticker"] == ticker and r.get("tancada") != "True":
+            r["accions_reduides"] = str(new_shares_reduced)
+            found = True
+    if not found:
+        return f"No s'ha trobat cap posicio oberta per {ticker}."
+    _write_positions_rows(rows)
+
+    if _git_configured():
+        pushed = _commit_and_push(f"Reduccio actualitzada: {ticker} -> {new_shares_reduced} accions")
+        if pushed:
+            return "✅ Reduccio guardada i pujada a GitHub."
+        return "⚠️ Reduccio guardada localment, pero no s'ha pogut pujar a GitHub."
+    return "Reduccio guardada nomes per aquesta sessio (GitHub no configurat)."
+
+
+def close_position(ticker: str) -> str:
+    """Marca una posicio com a tancada del tot (venuda o stop executat)."""
+    rows = _read_positions_rows()
+    found = False
+    for r in rows:
+        if r["ticker"] == ticker and r.get("tancada") != "True":
+            r["tancada"] = "True"
+            r["tancada_el"] = date.today().isoformat()
+            found = True
+    if not found:
+        return f"No s'ha trobat cap posicio oberta per {ticker}."
+    _write_positions_rows(rows)
+
+    if _git_configured():
+        pushed = _commit_and_push(f"Posicio tancada: {ticker} el {date.today().isoformat()}")
+        if pushed:
+            return "✅ Posicio tancada i guardada a GitHub."
+        return "⚠️ Posicio tancada localment, pero no s'ha pogut pujar a GitHub."
+    return "Posicio tancada nomes per aquesta sessio (GitHub no configurat)."
+
+
 def evaluate_and_save(evaluated_rows: List[dict]) -> str:
     """Sobreescriu el CSV amb les files ja avaluades i el puja a GitHub.
 

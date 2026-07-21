@@ -389,3 +389,36 @@ EOD_ALLOCATION_METHOD: str = "RISK_ADJUSTED"
 # cal tornar a pujar cada vegada).
 TRACK_RECORD_DRIVE_PATH: str = "/content/drive/MyDrive/ibex_engine_track_record"
 TRACK_RECORD_FILENAME: str = "picks_historial.csv"
+
+# ---------------------------------------------------------------------------
+# GESTIO DE POSICIO OBERTA (position_manager.py)
+# ---------------------------------------------------------------------------
+# Un cop l'usuari ha entrat en una posicio real (capital invertit + nombre
+# d'accions), aquest modul vigila el preu en cada actualitzacio i recomana
+# una sortida ESGLAONADA (per trams), en lloc de nomes "aguanta o ven-ho tot".
+# Aixo suavitza l'impacte d'un moviment en contra (es redueix risc de mica en
+# mica) en lloc d'esperar a que saltin cop a cop stop sencer.
+#
+# Cada tram es (% de caiguda des del preu d'entrada, % ACUMULAT d'accions
+# originals que ja s'haurien d'haver reduit en aquest punt). Els trams han
+# d'anar en ordre creixent de caiguda.
+POSITION_DRAWDOWN_TIERS: list = [
+    (1.0, 0.25),   # -1% des de l'entrada -> reduir fins al 25% acumulat de les accions
+    (2.0, 0.60),   # -2% -> reduir fins al 60% acumulat
+    (3.0, 1.00),   # -3% -> fora del tot (encara que no s'hagi arribat al stop tecnic)
+]
+
+# Si el preu toca o supera el stop tecnic (risk_reward.stop_price) abans
+# d'arribar al darrer tram, es recomana tancar el 100% igualment.
+POSITION_CLOSE_AT_STOP: bool = True
+
+# Presa de beneficis parcial: quan el preu arriba a aquest % del recorregut
+# cap a l'objectiu (0.0 = preu d'entrada, 1.0 = objectiu), es recomana
+# recollir una part dels guanys i pujar el stop al preu d'entrada (breakeven)
+# per a la resta.
+POSITION_PARTIAL_PROFIT_AT_PCT_OF_TARGET: float = 0.75
+POSITION_PARTIAL_PROFIT_TAKE_PCT: float = 0.30   # % de les accions restants a vendre en aquest punt
+
+# Quan el preu arriba o supera l'objectiu (100% del recorregut), % addicional
+# recomanat a recollir (sobre les accions que quedin en aquell moment).
+POSITION_FULL_TARGET_TAKE_PCT: float = 0.50

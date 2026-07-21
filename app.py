@@ -28,6 +28,8 @@ import main
 import closing_report as closing_report_module
 import app_storage
 import commentary as commentary_module
+import position_manager
+from models import Position
 from config import EOD_DEFAULT_CAPITAL, EOD_NUM_PICKS, ACTIVE_MARKET
 
 
@@ -124,6 +126,8 @@ CUSTOM_CSS = """
     .eng-exclude-reason { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--red); }
     .eng-commentary { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,0.04); font-size: 13px; line-height: 1.4; color: var(--text); }
     .eng-commentary-time { display: block; margin-top: 6px; font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+    .eng-target-line { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 12px; color: var(--text-dim); }
+    .eng-target-line b { color: var(--text); font-family: var(--mono); }
 
     .eng-note {
         padding: 12px 14px; background: var(--surface); border: 1px solid var(--border);
@@ -134,6 +138,12 @@ CUSTOM_CSS = """
     .eng-note b { color: var(--text); }
 
     .eng-total-row { display: flex; justify-content: space-between; margin-top: 14px; font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+
+    .eng-pos-action { margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; line-height: 1.4; }
+    .eng-pos-action.green { background: rgba(61,220,132,0.10); color: var(--text); border: 1px solid rgba(61,220,132,0.35); }
+    .eng-pos-action.amber { background: rgba(255,184,77,0.10); color: var(--text); border: 1px solid rgba(255,184,77,0.35); }
+    .eng-pos-action.red { background: rgba(255,92,92,0.10); color: var(--text); border: 1px solid rgba(255,92,92,0.35); }
+    .eng-pos-sub { font-size: 11px; color: var(--text-dim); margin-top: 8px; }
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -209,8 +219,20 @@ def render_stock_card(r, allocation_eur=None, capital=None, extra_note=None) -> 
 
     comment_text = commentary_module.generate_commentary(r)
     now_str = datetime.now().strftime("%H:%M")
+
+    target_html = ""
+    if r.risk_reward.quality != "SENSE_DADES" and r.risk_reward.target_price and r.price.last_price:
+        currency_symbol = "$" if r.ticker.upper() == "SPCX" else "€"
+        target_price = r.risk_reward.target_price
+        target_pct = (target_price - r.price.last_price) / r.price.last_price * 100.0
+        target_html = (
+            f'<div class="eng-target-line">🎯 Objectiu aprox: '
+            f'<b>{target_price:,.2f} {currency_symbol}</b> '
+            f'({target_pct:+.1f}% des d\'ara)</div>'
+        )
+
     comment_html = (
-        f'<div class="eng-commentary">{comment_text}'
+        f'<div class="eng-commentary">{comment_text}{target_html}'
         f'<span class="eng-commentary-time">Actualitzat {now_str} · dades amb ~15 min de retard</span>'
         f'</div>'
     )
@@ -504,6 +526,170 @@ def screen_full():
         st.markdown(render_stock_card(r), unsafe_allow_html=True)
 
 
+_ACTION_TO_STRIPE = {
+    "MANTENIR": None,          # es decideix segons move_pct (verd si a favor, ambre si en contra)
+    "REDUIR": "red",
+    "TANCAR_STOP": "red",
+    "RECOLLIR_BENEFICI": "green",
+    "OBJECTIU_ASSOLIT": "green",
+    "TANCADA": "amber",
+}
+
+
+def _position_stripe_class(status) -> str:
+    stripe = _ACTION_TO_STRIPE.get(status.action)
+    if stripe is not None:
+        return stripe
+    return "green" if status.move_pct >= 0 else "amber"
+
+
+def render_position_card(row: dict, status, currency_symbol: str) -> str:
+    """Genera l'HTML de la targeta d'una posicio oberta, amb el P&L en
+    temps real i la recomanacio d'accio (reduir/mantenir/tancar/recollir).
+    """
+    stripe = _position_stripe_class(status)
+    pnl_class = "green" if status.pnl_eur >= 0 else "red"
+
+    action_html = (
+        f'<div class="eng-pos-action {stripe}">{status.recommendation_text}</div>'
+    )
+
+    return f"""
+    <div class="eng-card">
+        <div class="eng-stripe {stripe}"></div>
+        <div class="eng-card-body">
+            <div class="eng-card-top">
+                <div>
+                    <div class="eng-stock-name">{row['nom']}</div>
+                    <div class="eng-stock-ticker">{row['ticker']} · {status.shares_remaining} accions actives</div>
+                </div>
+                <div>
+                    <div class="eng-pct-badge {pnl_class}">{status.pnl_pct:+.1f}%</div>
+                    <div class="eng-euro-amount">{status.pnl_eur:+,.0f} {currency_symbol}</div>
+                </div>
+            </div>
+            <div class="eng-metrics-row">
+                <div class="eng-metric">
+                    <div class="eng-metric-label">Preu ara</div>
+                    <div class="eng-metric-value">{status.current_price:,.2f} {currency_symbol}</div>
+                </div>
+                <div class="eng-metric">
+                    <div class="eng-metric-label">Dist. stop</div>
+                    <div class="eng-metric-value">{status.distance_to_stop_pct:.1f}%</div>
+                </div>
+                <div class="eng-metric">
+                    <div class="eng-metric-label">Dist. objectiu</div>
+                    <div class="eng-metric-value">{status.distance_to_target_pct:.1f}%</div>
+                </div>
+            </div>{action_html}
+            <div class="eng-pos-sub">Entrada a {float(row['preu_entrada']):,.2f} {currency_symbol} · stop {float(row['stop']):,.2f} · objectiu {float(row['objectiu']):,.2f}</div>
+        </div>
+    </div>
+    """
+
+
+def _currency_for_ticker(ticker: str) -> str:
+    return "$" if ticker.upper() == "SPCX" else "€"
+
+
+def screen_position():
+    render_header("GESTIÓ DE POSICIÓ", "On sóc ara mateix", "Capital ja invertit a Grifols i/o SpaceX: P&L en temps real i quan toca reduir o recollir benefici")
+
+    with st.spinner("Consultant preus actuals..."):
+        reports = _cached_analyze_focused()
+    reports_by_ticker = {r.ticker.upper(): r for r in reports}
+
+    open_rows = app_storage.read_open_positions()
+
+    if open_rows:
+        st.markdown("#### Posicions obertes")
+        for row in open_rows:
+            ticker = row["ticker"]
+            position = Position(
+                ticker=ticker,
+                display_name=row["nom"],
+                entry_price=float(row["preu_entrada"]),
+                initial_shares=int(row["accions_inicials"]),
+                capital_invested=float(row["capital_invertit_eur"]),
+                stop_price=float(row["stop"]),
+                target_price=float(row["objectiu"]),
+                shares_reduced=int(row["accions_reduides"]),
+                opened_at=row["oberta_el"],
+            )
+            report = reports_by_ticker.get(ticker.upper())
+            if report is None:
+                st.warning(f"No s'ha pogut obtenir el preu actual de {row['nom']} ara mateix.")
+                continue
+
+            status = position_manager.evaluate_position(position, report.price.last_price)
+            currency_symbol = _currency_for_ticker(ticker)
+            st.markdown(render_position_card(row, status, currency_symbol), unsafe_allow_html=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if status.shares_to_act_now > 0 and st.button(
+                    f"✅ Aplicar reducció ({status.shares_to_act_now} accions)", key=f"reduce_{ticker}", use_container_width=True
+                ):
+                    new_total = position.shares_reduced + status.shares_to_act_now
+                    msg = app_storage.update_position_reduction(ticker, new_total)
+                    st.success(msg) if "✅" in msg else st.info(msg)
+                    st.rerun()
+            with col2:
+                if st.button("🔒 Tancar posició del tot", key=f"close_{ticker}", use_container_width=True):
+                    msg = app_storage.close_position(ticker)
+                    st.success(msg) if "✅" in msg else st.info(msg)
+                    st.rerun()
+        st.divider()
+    else:
+        st.info("Encara no tens cap posició oberta registrada.")
+
+    open_tickers = {row["ticker"].upper() for row in open_rows}
+    available = [r for r in reports if r.ticker.upper() not in open_tickers]
+
+    if available:
+        st.markdown("#### Obrir una posició nova")
+        options = {f"{r.display_name} ({r.ticker})": r for r in available}
+        choice_label = st.selectbox("Valor", list(options.keys()), key="new_pos_ticker")
+        chosen = options[choice_label]
+        currency_symbol = _currency_for_ticker(chosen.ticker)
+
+        with st.form("new_position_form"):
+            capital = st.number_input(f"Capital invertit ({currency_symbol})", min_value=0.0, step=100.0)
+            shares = st.number_input("Nombre d'accions", min_value=1, step=1)
+            default_stop = chosen.risk_reward.stop_price if chosen.risk_reward.quality != "SENSE_DADES" else chosen.price.last_price * 0.97
+            default_target = chosen.risk_reward.target_price if chosen.risk_reward.quality != "SENSE_DADES" else chosen.price.last_price * 1.05
+            st.caption(f"Suggerits pel motor a partir de l'anàlisi tècnica actual — es poden ajustar abans de guardar.")
+            stop = st.number_input(f"Stop ({currency_symbol})", min_value=0.0, value=float(default_stop), step=0.01, format="%.2f")
+            target = st.number_input(f"Objectiu ({currency_symbol})", min_value=0.0, value=float(default_target), step=0.01, format="%.2f")
+
+            submitted = st.form_submit_button("💾 Guardar posició", use_container_width=True)
+            if submitted:
+                if capital <= 0 or shares <= 0:
+                    st.error("Cal indicar un capital invertit i un nombre d'accions superior a 0.")
+                else:
+                    entry_price = capital / shares
+                    position = Position(
+                        ticker=chosen.ticker,
+                        display_name=chosen.display_name,
+                        entry_price=entry_price,
+                        initial_shares=int(shares),
+                        capital_invested=capital,
+                        stop_price=stop,
+                        target_price=target,
+                        opened_at=date.today().isoformat(),
+                    )
+                    msg = app_storage.open_position(position)
+                    st.success(msg) if "✅" in msg else st.info(msg)
+                    st.rerun()
+
+    st.markdown(
+        '<div class="eng-note">⚠️ Els trams de reducció i presa de beneficis (config.py) són regles '
+        "mecàniques i transparents, no consell financer ni una predicció. Sempre és l'usuari qui "
+        "decideix i executa cada operació al seu broker.</div>",
+        unsafe_allow_html=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # NAVEGACIO
 # ---------------------------------------------------------------------------
@@ -512,6 +698,7 @@ PAGES = {
     "⚡ Vista ràpida": screen_quick_view,
     "🌙 Tancament": screen_closing,
     "☀️ Confirmació matí": screen_morning,
+    "📍 Posició": screen_position,
     "📊 Anàlisi completa": screen_full,
     "📈 Historial": screen_history,
 }

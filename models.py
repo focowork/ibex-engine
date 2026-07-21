@@ -264,6 +264,47 @@ class RemainingPotentialAnalysis:
 
 
 @dataclass
+class Position:
+    """Una posicio real oberta per l'usuari (capital ja invertit), amb el
+    seu propi stop i objectiu de referencia. Es independent del rànquing
+    general de l'accio: existeix perque l'usuari ja hi te diners a dins.
+    """
+    ticker: str
+    display_name: str
+    entry_price: float
+    initial_shares: int
+    capital_invested: float
+    stop_price: float
+    target_price: float
+    shares_reduced: int = 0     # accions ja venudes fins ara (seguint recomanacions previes)
+    opened_at: str = ""         # data ISO d'obertura
+    closed: bool = False
+    closed_at: str = ""
+
+
+@dataclass
+class PositionStatus:
+    """Fotografia de com esta una Position en aquest instant exacte,
+    amb la recomanacio d'accio a prendre ARA (si n'hi ha alguna).
+
+    IMPORTANT: aixo NO es consell financer ni una prediccio. Nomes aplica
+    regles mecaniques i transparents (config.POSITION_DRAWDOWN_TIERS i
+    similars) sobre el preu actual, igual que la resta del motor.
+    """
+    current_price: float
+    move_pct: float                 # % de moviment del preu des de l'entrada (+ a favor, - en contra)
+    shares_remaining: int
+    pnl_eur: float                  # guany/perdua no realitzat sobre les accions restants
+    pnl_pct: float                  # guany/perdua en % sobre el capital de les accions restants
+    distance_to_stop_pct: float
+    distance_to_target_pct: float
+    shares_to_act_now: int          # accions a moure ARA (reduir o recollir benefici), 0 si cap
+    action: str                     # "MANTENIR", "REDUIR", "TANCAR_STOP", "RECOLLIR_BENEFICI", "OBJECTIU_ASSOLIT"
+    recommendation_text: str
+    tier_notes: str = ""
+
+
+@dataclass
 class StockReport:
     """Informe complet d'una accio, llest per ser renderitzat."""
     display_name: str
