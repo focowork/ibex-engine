@@ -20,13 +20,14 @@ Per desplegar-ho gratis:
            GITHUB_REPO = "el_teu_usuari/el_teu_repo"
 """
 
-from datetime import date
+from datetime import date, datetime
 
 import streamlit as st
 
 import main
 import closing_report as closing_report_module
 import app_storage
+import commentary as commentary_module
 from config import EOD_DEFAULT_CAPITAL, EOD_NUM_PICKS, ACTIVE_MARKET
 
 
@@ -121,6 +122,8 @@ CUSTOM_CSS = """
     .eng-compare-val.now.red { color: var(--red); }
 
     .eng-exclude-reason { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; color: var(--red); }
+    .eng-commentary { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,0.04); font-size: 13px; line-height: 1.4; color: var(--text); }
+    .eng-commentary-time { display: block; margin-top: 6px; font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
 
     .eng-note {
         padding: 12px 14px; background: var(--surface); border: 1px solid var(--border);
@@ -156,6 +159,17 @@ def _stripe_class_for_bias(bias_label: str) -> str:
     return BIAS_DIAL_CLASS.get(bias_label, "amber")
 
 
+_COLOR_TO_CSS_CLASS = {"verd": "green", "vermell": "red", "groc": "amber"}
+
+
+def _stripe_class_for_report(r) -> str:
+    """Color de la targeta basat en la categoria matisada de commentary.py
+    (verd nomes si es alcista AMB marge real; groc si esta massa estirat,
+    encara que la tendencia de fons sigui alcista)."""
+    color = commentary_module.get_color(r)
+    return _COLOR_TO_CSS_CLASS.get(color, "amber")
+
+
 def render_stock_card(r, allocation_eur=None, capital=None, extra_note=None) -> str:
     """Genera l'HTML d'una targeta d'accio, coherent amb el mockup.
 
@@ -168,7 +182,7 @@ def render_stock_card(r, allocation_eur=None, capital=None, extra_note=None) -> 
     Returns:
         Fragment HTML.
     """
-    stripe = _stripe_class_for_bias(r.bias.bias)
+    stripe = _stripe_class_for_report(r)
     dial_class = stripe
 
     pct_html = ""
@@ -192,6 +206,14 @@ def render_stock_card(r, allocation_eur=None, capital=None, extra_note=None) -> 
     bias_label = BIAS_LABEL.get(r.bias.bias, r.bias.bias)
 
     note_html = f'<div class="eng-exclude-reason">{extra_note}</div>' if extra_note else ""
+
+    comment_text = commentary_module.generate_commentary(r)
+    now_str = datetime.now().strftime("%H:%M")
+    comment_html = (
+        f'<div class="eng-commentary">{comment_text}'
+        f'<span class="eng-commentary-time">Actualitzat {now_str} · dades amb ~15 min de retard</span>'
+        f'</div>'
+    )
 
     return f"""
     <div class="eng-card">
@@ -224,7 +246,7 @@ def render_stock_card(r, allocation_eur=None, capital=None, extra_note=None) -> 
                     <div class="eng-dial-needle {dial_class}"></div>
                 </div>
                 <div class="eng-bias-text"><b>{bias_label}</b> · {r.bias.bullish_count} senyals a favor</div>
-            </div>{note_html}
+            </div>{comment_html}{note_html}
         </div>
     </div>
     """
@@ -258,21 +280,16 @@ def _cached_analyze_focused():
 
 
 def screen_quick_view():
-    render_header("VISTA RÀPIDA", "Què val la pena mirar ara", "Grifols (IBEX35) i SpaceX (Nasdaq) — descarta EVITAR i biaix baixista")
+    render_header("VISTA RÀPIDA", "Estat actual", "Grifols (IBEX35) i SpaceX (Nasdaq) — es mostren sempre totes dues")
 
     with st.spinner("Analitzant Grifols i SpaceX..."):
         reports = _cached_analyze_focused()
 
-    candidates = [
-        r for r in reports
-        if r.scores.recommendation != "EVITAR"
-        and r.bias.bias not in ("MIXT", "BAIXISTA_CLAR", "BAIXISTA_LLEU")
-    ]
-    candidates.sort(key=lambda r: r.scores.final_score, reverse=True)
-    top = candidates[:8]
+    order = {"GRF.MC": 0, "SPCX": 1}
+    top = sorted(reports, key=lambda r: order.get(r.ticker.upper(), 99))
 
     if not top:
-        st.info("Cap valor destaca prou ara mateix.")
+        st.info("No s'han pogut obtenir dades ara mateix. Torna-ho a provar en uns minuts.")
         return
 
     for r in top:
@@ -475,13 +492,13 @@ def screen_history():
 
 
 def screen_full():
-    render_header("ANÀLISI COMPLETA", "Grifols i SpaceX", "Comparativa completa dels dos valors")
+    render_header("ANÀLISI COMPLETA", "Grifols i SpaceX", "Comparativa completa dels dos valors, sense filtrar cap")
 
     with st.spinner("Analitzant Grifols i SpaceX..."):
         reports = _cached_analyze_focused()
 
-    long_only = [r for r in reports if r.bias.bias not in ("BAIXISTA_CLAR", "BAIXISTA_LLEU")]
-    long_only.sort(key=lambda r: r.scores.final_score, reverse=True)
+    order = {"GRF.MC": 0, "SPCX": 1}
+    long_only = sorted(reports, key=lambda r: order.get(r.ticker.upper(), 99))
 
     for r in long_only:
         st.markdown(render_stock_card(r), unsafe_allow_html=True)
