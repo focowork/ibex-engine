@@ -639,6 +639,76 @@ def screen_position():
                     msg = app_storage.close_position(ticker)
                     st.success(msg) if "✅" in msg else st.info(msg)
                     st.rerun()
+
+            with st.expander(f"✏️ Editar aquesta posició ({row['nom']})"):
+                with st.form(f"edit_position_form_{ticker}"):
+                    edit_entry = st.number_input(
+                        f"Preu de compra ({currency_symbol})", min_value=0.01,
+                        value=position.entry_price, step=0.01, format="%.2f", key=f"edit_entry_{ticker}",
+                    )
+                    edit_shares_initial = st.number_input(
+                        "Accions inicials", min_value=1, value=position.initial_shares, step=1, key=f"edit_shares_{ticker}",
+                    )
+                    edit_shares_reduced = st.number_input(
+                        "Accions ja reduides", min_value=0, value=position.shares_reduced, step=1, key=f"edit_reduced_{ticker}",
+                    )
+                    edit_stop = st.number_input(
+                        f"Stop ({currency_symbol})", min_value=0.0, value=position.stop_price, step=0.01, format="%.2f", key=f"edit_stop_{ticker}",
+                    )
+                    edit_target = st.number_input(
+                        f"Objectiu ({currency_symbol})", min_value=0.0, value=position.target_price, step=0.01, format="%.2f", key=f"edit_target_{ticker}",
+                    )
+                    edit_submitted = st.form_submit_button("💾 Guardar canvis", use_container_width=True)
+                    if edit_submitted:
+                        if edit_shares_reduced > edit_shares_initial:
+                            st.error("Les accions ja reduïdes no poden superar les accions inicials.")
+                        elif edit_stop >= edit_entry:
+                            st.error("El stop ha de quedar per SOTA del preu de compra (només operes a l'alça).")
+                        elif edit_target <= edit_entry:
+                            st.error("L'objectiu ha de quedar per SOBRE del preu de compra (només operes a l'alça).")
+                        else:
+                            msg = app_storage.edit_position(ticker, {
+                                "preu_entrada": edit_entry,
+                                "accions_inicials": edit_shares_initial,
+                                "accions_reduides": edit_shares_reduced,
+                                "capital_invertit_eur": edit_entry * edit_shares_initial,
+                                "stop": edit_stop,
+                                "objectiu": edit_target,
+                            })
+                            st.success(msg) if "✅" in msg else st.info(msg)
+                            st.rerun()
+
+            with st.expander(f"✏️ Editar dades de {row['nom']}"):
+                with st.form(f"edit_position_form_{ticker}"):
+                    edit_entry = st.number_input(
+                        f"Preu de compra ({currency_symbol})", min_value=0.01,
+                        value=position.entry_price, step=0.01, format="%.2f", key=f"edit_entry_{ticker}",
+                    )
+                    edit_stop = st.number_input(
+                        f"Stop ({currency_symbol})", min_value=0.0,
+                        value=position.stop_price, step=0.01, format="%.2f", key=f"edit_stop_{ticker}",
+                    )
+                    edit_target = st.number_input(
+                        f"Objectiu ({currency_symbol})", min_value=0.0,
+                        value=position.target_price, step=0.01, format="%.2f", key=f"edit_target_{ticker}",
+                    )
+                    edit_capital = st.number_input(
+                        f"Capital invertit ({currency_symbol})", min_value=0.0,
+                        value=position.capital_invested, step=100.0, key=f"edit_capital_{ticker}",
+                    )
+                    edit_submitted = st.form_submit_button("💾 Guardar correcció", use_container_width=True)
+                    if edit_submitted:
+                        if edit_stop >= edit_entry:
+                            st.error("El stop ha de quedar per SOTA del preu de compra (només operes a l'alça).")
+                        elif edit_target <= edit_entry:
+                            st.error("L'objectiu ha de quedar per SOBRE del preu de compra (només operes a l'alça).")
+                        else:
+                            msg = app_storage.update_position_details(
+                                ticker, entry_price=edit_entry, stop=edit_stop,
+                                target=edit_target, capital_invested=edit_capital,
+                            )
+                            st.success(msg) if "✅" in msg else st.info(msg)
+                            st.rerun()
         st.divider()
     else:
         st.info("Encara no tens cap posició oberta registrada.")
@@ -652,28 +722,65 @@ def screen_position():
         choice_label = st.selectbox("Valor", list(options.keys()), key="new_pos_ticker")
         chosen = options[choice_label]
         currency_symbol = _currency_for_ticker(chosen.ticker)
+        current_price = chosen.price.last_price
+
+        capital = st.number_input(f"Capital invertit ({currency_symbol})", min_value=0.0, step=100.0, key="new_pos_capital")
+        entry_price_input = st.number_input(
+            f"Preu de compra ({currency_symbol})", min_value=0.01,
+            value=float(current_price) if current_price else 1.0,
+            step=0.01, format="%.2f", key="new_pos_entry_price",
+            help="Per defecte el preu actual de mercat. Canvia'l si la teva compra real va ser a un altre preu.",
+        )
+        shares = int(capital // entry_price_input) if entry_price_input > 0 else 0
+        capital_realment_invertit = shares * entry_price_input
+        if capital > 0:
+            st.caption(
+                f"📐 Accions calculades: **{shares}** ({capital:,.2f} ÷ {entry_price_input:,.2f}, arrodonit a la baixa). "
+                f"Capital realment desplegat: {capital_realment_invertit:,.2f} {currency_symbol} "
+                f"(sobrant: {capital - capital_realment_invertit:,.2f} {currency_symbol})."
+            )
+
+        # Nomes operem a l'alça (LONG_ONLY_MODE): el stop SEMPRE ha de quedar per
+        # sota del preu de compra i l'objectiu SEMPRE per sobre, independentment
+        # d'on apuntin els nivells tecnics bruts del motor en aquest moment.
+        atr_fallback = chosen.regime.atr if chosen.regime.atr > 0 else current_price * 0.015
+        engine_stop = chosen.risk_reward.stop_price
+        engine_target = chosen.risk_reward.target_price
+        stop_from_engine_ok = chosen.risk_reward.quality != "SENSE_DADES" and 0 < engine_stop < current_price
+        target_from_engine_ok = chosen.risk_reward.quality != "SENSE_DADES" and engine_target > current_price
+
+        default_stop = engine_stop if stop_from_engine_ok else max(0.01, current_price - atr_fallback)
+        default_target = engine_target if target_from_engine_ok else current_price + atr_fallback * 2
+
+        if not target_from_engine_ok:
+            st.markdown(
+                '<div class="eng-note">⚠️ Ara mateix el biaix tècnic d\'aquest valor apunta a la baixa '
+                "(l'objectiu del motor quedaria per sota del preu actual). Com que només operes a l'alça, "
+                "s'ha suggerit un objectiu alternatiu basat en l'ATR — revisa'l bé abans de guardar, o "
+                "espera que el biaix es giri alcista abans d'entrar-hi.</div>",
+                unsafe_allow_html=True,
+            )
 
         with st.form("new_position_form"):
-            capital = st.number_input(f"Capital invertit ({currency_symbol})", min_value=0.0, step=100.0)
-            shares = st.number_input("Nombre d'accions", min_value=1, step=1)
-            default_stop = chosen.risk_reward.stop_price if chosen.risk_reward.quality != "SENSE_DADES" else chosen.price.last_price * 0.97
-            default_target = chosen.risk_reward.target_price if chosen.risk_reward.quality != "SENSE_DADES" else chosen.price.last_price * 1.05
-            st.caption(f"Suggerits pel motor a partir de l'anàlisi tècnica actual — es poden ajustar abans de guardar.")
+            st.caption("Suggerits pel motor a partir de l'anàlisi tècnica actual — es poden ajustar abans de guardar.")
             stop = st.number_input(f"Stop ({currency_symbol})", min_value=0.0, value=float(default_stop), step=0.01, format="%.2f")
             target = st.number_input(f"Objectiu ({currency_symbol})", min_value=0.0, value=float(default_target), step=0.01, format="%.2f")
 
             submitted = st.form_submit_button("💾 Guardar posició", use_container_width=True)
             if submitted:
                 if capital <= 0 or shares <= 0:
-                    st.error("Cal indicar un capital invertit i un nombre d'accions superior a 0.")
+                    st.error("Cal indicar un capital invertit suficient per comprar com a mínim 1 acció al preu de compra indicat.")
+                elif stop >= entry_price_input:
+                    st.error("El stop ha de quedar per SOTA del preu de compra (només operes a l'alça).")
+                elif target <= entry_price_input:
+                    st.error("L'objectiu ha de quedar per SOBRE del preu de compra (només operes a l'alça).")
                 else:
-                    entry_price = capital / shares
                     position = Position(
                         ticker=chosen.ticker,
                         display_name=chosen.display_name,
-                        entry_price=entry_price,
+                        entry_price=entry_price_input,
                         initial_shares=int(shares),
-                        capital_invested=capital,
+                        capital_invested=capital_realment_invertit,
                         stop_price=stop,
                         target_price=target,
                         opened_at=date.today().isoformat(),

@@ -317,6 +317,76 @@ def update_position_reduction(ticker: str, new_shares_reduced: int) -> str:
     return "Reduccio guardada nomes per aquesta sessio (GitHub no configurat)."
 
 
+def update_position_details(ticker: str, entry_price: float, stop: float, target: float, capital_invested: float) -> str:
+    """Corregeix les dades d'una posicio ja oberta (preu de compra, stop,
+    objectiu, capital) sense haver de tancar-la i tornar-la a crear.
+
+    Args:
+        ticker: identifica la posicio oberta a corregir.
+        entry_price: nou preu de compra.
+        stop: nou stop.
+        target: nou objectiu.
+        capital_invested: nou capital realment desplegat.
+
+    Returns:
+        Text de confirmacio.
+    """
+    rows = _read_positions_rows()
+    found = False
+    for r in rows:
+        if r["ticker"] == ticker and r.get("tancada") != "True":
+            r["preu_entrada"] = f"{entry_price:.4f}"
+            r["stop"] = f"{stop:.4f}"
+            r["objectiu"] = f"{target:.4f}"
+            r["capital_invertit_eur"] = f"{capital_invested:.2f}"
+            found = True
+    if not found:
+        return f"No s'ha trobat cap posicio oberta per {ticker}."
+    _write_positions_rows(rows)
+
+    if _git_configured():
+        pushed = _commit_and_push(f"Posicio corregida: {ticker}")
+        if pushed:
+            return "✅ Posicio corregida i pujada a GitHub."
+        return "⚠️ Posicio corregida localment, pero no s'ha pogut pujar a GitHub."
+    return "Posicio corregida nomes per aquesta sessio (GitHub no configurat)."
+
+
+def edit_position(ticker: str, updates: dict) -> str:
+    """Actualitza un o mes camps d'una posicio oberta ja existent (preu
+    d'entrada, stop, objectiu, accions inicials o accions reduides), sense
+    haver de tancar-la i tornar-la a crear.
+
+    Args:
+        ticker: identifica la posicio oberta.
+        updates: diccionari amb claus de POSITIONS_CSV_FIELDS a actualitzar
+            (per exemple {"preu_entrada": 14.55, "stop": 13.9}).
+
+    Returns:
+        Text de confirmacio.
+    """
+    rows = _read_positions_rows()
+    found = False
+    for r in rows:
+        if r["ticker"] == ticker and r.get("tancada") != "True":
+            for key, value in updates.items():
+                if key in ("preu_entrada", "capital_invertit_eur", "stop", "objectiu"):
+                    r[key] = f"{float(value):.4f}"
+                elif key in ("accions_inicials", "accions_reduides"):
+                    r[key] = str(int(value))
+            found = True
+    if not found:
+        return f"No s'ha trobat cap posicio oberta per {ticker}."
+    _write_positions_rows(rows)
+
+    if _git_configured():
+        pushed = _commit_and_push(f"Posicio editada: {ticker}")
+        if pushed:
+            return "✅ Canvis guardats i pujats a GitHub."
+        return "⚠️ Canvis guardats localment, pero no s'ha pogut pujar a GitHub."
+    return "Canvis guardats nomes per aquesta sessio (GitHub no configurat)."
+
+
 def close_position(ticker: str) -> str:
     """Marca una posicio com a tancada del tot (venuda o stop executat)."""
     rows = _read_positions_rows()
