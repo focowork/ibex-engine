@@ -285,8 +285,20 @@ def open_position(position) -> str:
 
 
 def read_open_positions() -> List[dict]:
-    """Retorna nomes les files de posicions encara obertes (no tancades)."""
-    return [r for r in _read_positions_rows() if r.get("tancada") != "True"]
+    """Retorna nomes les files de posicions encara obertes (no tancades),
+    una per ticker (si n'hi ha files duplicades per un mateix ticker per
+    algun motiu, es queda amb la mes recent i neteja la resta)."""
+    open_rows = [r for r in _read_positions_rows() if r.get("tancada") != "True"]
+    deduped = {}
+    for r in open_rows:
+        deduped[r["ticker"]] = r  # la darrera (mes avall al fitxer) guanya
+    if len(deduped) != len(open_rows):
+        all_rows = _read_positions_rows()
+        cleaned = [r for r in all_rows if r.get("tancada") == "True"] + list(deduped.values())
+        _write_positions_rows(cleaned)
+        if _git_configured():
+            _commit_and_push("Neteja de posicions duplicades")
+    return list(deduped.values())
 
 
 def update_position_reduction(ticker: str, new_shares_reduced: int) -> str:

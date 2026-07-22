@@ -603,8 +603,9 @@ def screen_position():
 
     if open_rows:
         st.markdown("#### Posicions obertes")
-        for row in open_rows:
+        for idx, row in enumerate(open_rows):
             ticker = row["ticker"]
+            widget_key = f"{ticker}_{idx}"
             position = Position(
                 ticker=ticker,
                 display_name=row["nom"],
@@ -628,35 +629,35 @@ def screen_position():
             col1, col2 = st.columns(2)
             with col1:
                 if status.shares_to_act_now > 0 and st.button(
-                    f"✅ Aplicar reducció ({status.shares_to_act_now} accions)", key=f"reduce_{ticker}", use_container_width=True
+                    f"✅ Aplicar reducció ({status.shares_to_act_now} accions)", key=f"reduce_{widget_key}", use_container_width=True
                 ):
                     new_total = position.shares_reduced + status.shares_to_act_now
                     msg = app_storage.update_position_reduction(ticker, new_total)
                     st.success(msg) if "✅" in msg else st.info(msg)
                     st.rerun()
             with col2:
-                if st.button("🔒 Tancar posició del tot", key=f"close_{ticker}", use_container_width=True):
+                if st.button("🔒 Tancar posició del tot", key=f"close_{widget_key}", use_container_width=True):
                     msg = app_storage.close_position(ticker)
                     st.success(msg) if "✅" in msg else st.info(msg)
                     st.rerun()
 
             with st.expander(f"✏️ Editar aquesta posició ({row['nom']})"):
-                with st.form(f"edit_position_form_{ticker}"):
+                with st.form(f"edit_position_form_{widget_key}"):
                     edit_entry = st.number_input(
                         f"Preu de compra ({currency_symbol})", min_value=0.01,
-                        value=position.entry_price, step=0.01, format="%.2f", key=f"edit_entry_{ticker}",
+                        value=position.entry_price, step=0.01, format="%.2f", key=f"edit_entry_{widget_key}",
                     )
                     edit_shares_initial = st.number_input(
-                        "Accions inicials", min_value=1, value=position.initial_shares, step=1, key=f"edit_shares_{ticker}",
+                        "Accions inicials", min_value=1, value=position.initial_shares, step=1, key=f"edit_shares_{widget_key}",
                     )
                     edit_shares_reduced = st.number_input(
-                        "Accions ja reduides", min_value=0, value=position.shares_reduced, step=1, key=f"edit_reduced_{ticker}",
+                        "Accions ja reduides", min_value=0, value=position.shares_reduced, step=1, key=f"edit_reduced_{widget_key}",
                     )
                     edit_stop = st.number_input(
-                        f"Stop ({currency_symbol})", min_value=0.0, value=position.stop_price, step=0.01, format="%.2f", key=f"edit_stop_{ticker}",
+                        f"Stop ({currency_symbol})", min_value=0.0, value=position.stop_price, step=0.01, format="%.2f", key=f"edit_stop_{widget_key}",
                     )
                     edit_target = st.number_input(
-                        f"Objectiu ({currency_symbol})", min_value=0.0, value=position.target_price, step=0.01, format="%.2f", key=f"edit_target_{ticker}",
+                        f"Objectiu ({currency_symbol})", min_value=0.0, value=position.target_price, step=0.01, format="%.2f", key=f"edit_target_{widget_key}",
                     )
                     edit_submitted = st.form_submit_button("💾 Guardar canvis", use_container_width=True)
                     if edit_submitted:
